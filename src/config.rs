@@ -113,8 +113,26 @@ const CHARS: &[char] = &[
     'm', 'n', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
 ];
 
-pub const RENDEZVOUS_SERVERS: &[&str] = &["rs-ny.rustdesk.com"];
-pub const RS_PUB_KEY: &str = "OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=";
+lazy_static::lazy_static! {
+    pub static ref RENDEZVOUS_SERVERS: Vec<&'static str> =
+        parse_rendezvous_servers(option_env!("EVERYWHERE_RENDEZVOUS").unwrap_or(""));
+}
+pub const RS_PUB_KEY: &str = match option_env!("EVERYWHERE_PUBKEY") {
+    Some(value) => value,
+    None => "",
+};
+pub const API_SERVER: &str = match option_env!("EVERYWHERE_API") {
+    Some(value) => value,
+    None => "",
+};
+
+fn parse_rendezvous_servers(value: &str) -> Vec<&str> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect()
+}
 
 pub const RENDEZVOUS_PORT: i32 = 21116;
 pub const RELAY_PORT: i32 = 21117;
@@ -462,6 +480,9 @@ pub struct TransferSerde {
 
 #[inline]
 pub fn get_online_state() -> i64 {
+    if Config::get_rendezvous_servers().is_empty() {
+        return -2; // Server not configured, shared by the desktop and mobile UI.
+    }
     *ONLINE.lock().unwrap().values().max().unwrap_or(&0)
 }
 
@@ -1047,6 +1068,10 @@ impl Config {
     }
 
     pub fn get_rendezvous_server() -> String {
+        // A cached latency winner must not restore a server when none is configured.
+        if Self::get_rendezvous_servers().is_empty() {
+            return String::new();
+        }
         let mut rendezvous_server = EXE_RENDEZVOUS_SERVER.read().unwrap().clone();
         if rendezvous_server.is_empty() {
             rendezvous_server = Self::get_option("custom-rendezvous-server");
@@ -3038,6 +3063,26 @@ impl Status {
 #[cfg(test)]
 mod tests {
     use super::{permanent_password::PERMANENT_PASSWORD_ENC_VERSION, *};
+
+    #[test]
+    fn test_parse_rendezvous_servers() {
+        assert!(parse_rendezvous_servers("").is_empty());
+        assert!(parse_rendezvous_servers(" , , ").is_empty());
+        assert_eq!(
+            parse_rendezvous_servers(" id.example.net, ,192.0.2.1:21116,[::1]:21116, "),
+            vec!["id.example.net", "192.0.2.1:21116", "[::1]:21116"]
+        );
+    }
+
+    #[test]
+    fn test_build_server_defaults() {
+        assert_eq!(
+            *RENDEZVOUS_SERVERS,
+            parse_rendezvous_servers(option_env!("EVERYWHERE_RENDEZVOUS").unwrap_or(""))
+        );
+        assert_eq!(RS_PUB_KEY, option_env!("EVERYWHERE_PUBKEY").unwrap_or(""));
+        assert_eq!(API_SERVER, option_env!("EVERYWHERE_API").unwrap_or(""));
+    }
 
     static CONFIG_STATE_TEST_LOCK: Mutex<()> = Mutex::new(());
 

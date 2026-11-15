@@ -781,14 +781,26 @@ mod tests {
         assert_eq!(check_ws("example.com:21116"), "wss://example.com/ws/id");
         assert_eq!(check_ws("example.com:21117"), "wss://example.com/ws/relay");
         assert_eq!(check_ws("127.0.0.1:21116"), "ws://127.0.0.1:21118");
-        // with no rendezvous server set, the public fallback is not one of ours
+        assert_eq!(Config::get_rendezvous_servers(), vec!["rustdesk.com"]);
+        // Without an explicit server, use only the build defaults (which may be empty).
         Config::set_option("custom-rendezvous-server".to_string(), "".to_string());
-        let fallback = Config::get_rendezvous_server();
-        let (fallback_host, _) = split_host_port(&fallback).unwrap();
         assert_eq!(
-            check_ws(&fallback),
-            format!("wss://{}/ws/id", fallback_host)
+            Config::get_rendezvous_servers(),
+            crate::config::RENDEZVOUS_SERVERS
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
         );
+        let fallback = Config::get_rendezvous_server();
+        if let Some(server) = crate::config::RENDEZVOUS_SERVERS.first() {
+            assert_eq!(
+                fallback,
+                crate::socket_client::check_port(server, crate::config::RENDEZVOUS_PORT)
+            );
+        } else {
+            assert!(fallback.is_empty());
+            assert_eq!(crate::config::get_online_state(), -2);
+        }
         Config::set_options(options);
     }
     // A server-to-client frame is unmasked, so it can be put on the wire by hand: the header alone,
